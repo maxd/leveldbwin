@@ -60,6 +60,7 @@ public:
     ~Mutex();
     void Lock();
     void Unlock();
+    BOOL TryLock();
     void AssertHeld();
 
 private:

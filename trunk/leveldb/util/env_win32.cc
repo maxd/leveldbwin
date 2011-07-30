@@ -14,10 +14,10 @@
 #include <stdio.h>
 #include <errno.h>
 #include <io.h>
-#include <boost/scoped_ptr.hpp>
 #include <DbgHelp.h>
 #include <algorithm>
 #pragma comment(lib,"DbgHelp.lib")
+
 #if defined DeleteFile
 #undef DeleteFile
 #endif
@@ -32,43 +32,16 @@ typedef ATL::CA2WEX<MAX_PATH> MultiByteToWChar;
 typedef ATL::CW2AEX<MAX_PATH> WCharToMultiByte;
 typedef ATL::CA2AEX<MAX_PATH> MultiByteToAnsi;
 
-std::string GetCurrentDir()
-{
-    CHAR path[MAX_PATH];
-    ::GetModuleFileNameA(::GetModuleHandleA(NULL),path,MAX_PATH);
-    *strrchr(path,'\\') = 0;
-    return std::string(path);
-}
+std::string GetCurrentDir();
 
-std::wstring GetCurrentDirW()
-{
-    WCHAR path[MAX_PATH];
-    ::GetModuleFileNameW(::GetModuleHandleW(NULL),path,MAX_PATH);
-    *wcsrchr(path,L'\\') = 0;
-    return std::wstring(path);
-}
+std::wstring GetCurrentDirW();
 
 static const std::string CurrentDir = GetCurrentDir();
 static const std::wstring CurrentDirW = GetCurrentDirW();
 
-std::string& ModifyPath(std::string& path)
-{
-    if(path[0] == '/' || path[0] == '\\'){
-        path = CurrentDir + path;
-    }
-    std::replace(path.begin(),path.end(),'/','\\');
-    
-    return path;
-}
+std::string& ModifyPath(std::string& path);
 
-std::wstring& ModifyPath(std::wstring& path)
-{
-    if(path[0] == L'/' || path[0] == L'\\'){
-        path = CurrentDirW + path;
-    }
-    std::replace(path.begin(),path.end(),L'/',L'\\');
-    return path;
-}
+std::wstring& ModifyPath(std::wstring& path);
 
 class WorkPool
 {
@@ -80,118 +53,27 @@ public:
         void (*function)(void*);
         void* arg;
     };
-    WorkPool() : _HasNewWorkEvent(NULL),_PoolWorking(false)
-    {
-        Init();
-        _PoolWorking = true;
-    }
-    ~WorkPool()
-    {
-        _PoolWorking = false;
-        Uninit();
-    }
-    bool SetThreadCount(size_t count)
-    {
-        if(_PoolWorking){
-            int needs = (int)count - (int)GetCurrentThreadCount();
-            if(needs > 0)
-                AddThread(needs);
-            else if(needs < 0 )
-                DestoryThread(-needs);
-        }
-        
-        return true;
-    }
-    size_t GetCurrentThreadCount()
-    {
-        _mu.Lock();
-        size_t c = 0;
-        for(std::map<DWORD,ThreadState>::iterator iter = _States.begin() ;
-            iter != _States.end() ; iter++){
-            if(!iter->second == Working)
-                c++;
-        }
-        _mu.Unlock();
-        return c;
-    }
-    bool AddWork( void (*function)(void* arg), void* arg )
-    {
-        return AddWork(Work(function,arg));
-    }
-    bool AddWork(Work work)
-    {
-        if(_PoolWorking){
-            port::AutoLock __lock(_mu);
-            _Works.push_back(work);
-            SetEvent(_HasNewWorkEvent);
-        }
-        return true;
-    }
+    WorkPool();
+    ~WorkPool();
+    bool SetThreadCount(size_t count);
+    size_t GetCurrentThreadCount();
+    bool AddWork( void (*function)(void* arg), void* arg );
+    bool AddWork(Work work);
     static const size_t DefaultThreadsCount = 5;
 private:
     enum ThreadState
     {
         Unknown,
         Working,
+        Idle,
         ShutDown
     };
-    static void WorkerThreadProc(void* arg)
-    {
-        WorkPool* pThis = static_cast<WorkPool*>(arg);
-        std::map<DWORD,ThreadState>& States = pThis->_States;
-        HANDLE HasNewWorkEvent = pThis->_HasNewWorkEvent;
-        std::list<Work>& Works = pThis->_Works;
-        port::Mutex& mu = pThis->_mu;   
-        mu.Lock();
-        States[::GetCurrentThreadId()] = Working;
-        mu.Unlock();
-        bool Continue = true;
-        ThreadState currentState = Working;
-        while(Continue){
-            mu.Lock();
-            currentState = States[::GetCurrentThreadId()];
-            if(!Works.empty()){
-                Work _work = *Works.begin();
-                Works.pop_front();
-                mu.Unlock();
-                _work.function(_work.arg);
-            }else{
-                mu.Unlock();
-                ::WaitForSingleObject(HasNewWorkEvent,20);
-            }
-            if(currentState == ShutDown)
-                Continue = false;
-        }
-        mu.Lock();
-        States.erase(::GetCurrentThreadId());
-        mu.Unlock();
-    }
-    void Init()
-    {
-        _HasNewWorkEvent = CreateEvent(NULL,FALSE,FALSE,NULL);
-        AddThread(DefaultThreadsCount);
-    }
-    void Uninit()
-    {
-        DestoryThread(GetCurrentThreadCount());
-        CloseHandle(_HasNewWorkEvent);
-        _HasNewWorkEvent = NULL;
-    }
-    void AddThread(size_t count)
-    {
-        for(size_t i = 0 ; i < count ; i++){
-            HANDLE hThread = (HANDLE)_beginthread(WorkerThreadProc,0,this);
-        }
-    }
-    void DestoryThread(size_t count)
-    {
-        port::AutoLock __lock(_mu);
-        size_t RealCount = count < _States.size() ? count : _States.size();
-        std::map<DWORD,ThreadState>::iterator iter = _States.begin();
-        for(size_t i = 0 ; i < RealCount ; i++,iter++){
-            iter->second = ShutDown;
-        }
-    }
+    static void WorkerThreadProc(void* arg);
+    static void OnIdle(::leveldb::port::Mutex& mu,std::map<DWORD,ThreadState>& States);
+    void Init();
+    void Uninit();
+    void AddThread(size_t count);
+    void DestoryThread(size_t count);
     DISALLOW_COPY_AND_ASSIGN(WorkPool);
     ::leveldb::port::Mutex _mu;
     std::list<Work> _Works;
@@ -208,6 +90,15 @@ public:
     {
         if(bInitOnCreate)
             _p = new T();
+    }
+    ~SingletonHelper()
+    {
+        Delete();
+    }
+    static void Delete()
+    {
+        if(_p)
+            delete _p;
     }
     static T* GetPointer()
     {
@@ -288,47 +179,47 @@ class Win32Env : public Env
 public:
     Win32Env();
     virtual ~Win32Env();
-    Status NewSequentialFile(const std::string& fname,
+    virtual Status NewSequentialFile(const std::string& fname,
         SequentialFile** result);
 
-    Status NewRandomAccessFile(const std::string& fname,
+    virtual Status NewRandomAccessFile(const std::string& fname,
         RandomAccessFile** result);
-    Status NewWritableFile(const std::string& fname,
+    virtual Status NewWritableFile(const std::string& fname,
         WritableFile** result);
 
-    bool FileExists(const std::string& fname);
+    virtual bool FileExists(const std::string& fname);
 
-    Status GetChildren(const std::string& dir,
+    virtual Status GetChildren(const std::string& dir,
         std::vector<std::string>* result);
 
-    Status DeleteFile(const std::string& fname);
+    virtual Status DeleteFile(const std::string& fname);
 
-    Status CreateDir(const std::string& dirname);
+    virtual Status CreateDir(const std::string& dirname);
 
-    Status DeleteDir(const std::string& dirname);
+    virtual Status DeleteDir(const std::string& dirname);
 
-    Status GetFileSize(const std::string& fname, uint64_t* file_size);
+    virtual Status GetFileSize(const std::string& fname, uint64_t* file_size);
 
-    Status RenameFile(const std::string& src,
+    virtual Status RenameFile(const std::string& src,
         const std::string& target);
 
-    Status LockFile(const std::string& fname, FileLock** lock);
+    virtual Status LockFile(const std::string& fname, FileLock** lock);
 
-    Status UnlockFile(FileLock* lock);
+    virtual Status UnlockFile(FileLock* lock);
 
-    void Schedule(
+    virtual void Schedule(
         void (*function)(void* arg),
         void* arg);
 
-    void StartThread(void (*function)(void* arg), void* arg);
+    virtual void StartThread(void (*function)(void* arg), void* arg);
 
-    Status GetTestDirectory(std::string* path);
+    virtual Status GetTestDirectory(std::string* path);
 
-    void Logv(WritableFile* log, const char* format, va_list ap);
+    virtual void Logv(WritableFile* log, const char* format, va_list ap);
 
-    uint64_t NowMicros();
+    virtual uint64_t NowMicros();
 
-    void SleepForMicroseconds(int micros);
+    virtual void SleepForMicroseconds(int micros);
 private:
     Win32::WorkPool _pool;
 };
@@ -340,6 +231,188 @@ Win32Env* Win32::SingletonHelper<Win32Env>::_p = NULL;
 //Implementations
 namespace leveldb
 {
+
+namespace Win32
+{
+
+std::string GetCurrentDir()
+{
+    CHAR path[MAX_PATH];
+    ::GetModuleFileNameA(::GetModuleHandleA(NULL),path,MAX_PATH);
+    *strrchr(path,'\\') = 0;
+    return std::string(path);
+}
+
+std::wstring GetCurrentDirW()
+{
+    WCHAR path[MAX_PATH];
+    ::GetModuleFileNameW(::GetModuleHandleW(NULL),path,MAX_PATH);
+    *wcsrchr(path,L'\\') = 0;
+    return std::wstring(path);
+}
+
+std::string& ModifyPath(std::string& path)
+{
+    if(path[0] == '/' || path[0] == '\\'){
+        path = CurrentDir + path;
+    }
+    std::replace(path.begin(),path.end(),'/','\\');
+
+    return path;
+}
+
+std::wstring& ModifyPath(std::wstring& path)
+{
+    if(path[0] == L'/' || path[0] == L'\\'){
+        path = CurrentDirW + path;
+    }
+    std::replace(path.begin(),path.end(),L'/',L'\\');
+    return path;
+}
+
+WorkPool::WorkPool() : _HasNewWorkEvent(NULL),_PoolWorking(false)
+{
+    Init();
+    _PoolWorking = true;
+}
+
+WorkPool::~WorkPool()
+{
+    _PoolWorking = false;
+    Uninit();
+}
+
+bool WorkPool::SetThreadCount( size_t count )
+{
+    if(_PoolWorking){
+        int needs = (int)count - (int)GetCurrentThreadCount();
+        if(needs > 0)
+            AddThread(needs);
+        else if(needs < 0 )
+            DestoryThread(-needs);
+    }
+
+    return true;
+}
+
+size_t WorkPool::GetCurrentThreadCount()
+{
+    _mu.Lock();
+    size_t c = 0;
+    for(std::map<DWORD,ThreadState>::iterator iter = _States.begin() ;
+        iter != _States.end() ; iter++){
+            if(!iter->second == Working)
+                c++;
+    }
+    _mu.Unlock();
+    return c;
+}
+
+bool WorkPool::AddWork( void (*function)(void* arg), void* arg )
+{
+    return AddWork(Work(function,arg));
+}
+
+bool WorkPool::AddWork( Work work )
+{
+    if(_PoolWorking){
+        port::AutoLock __lock(_mu);
+        _Works.push_back(work);
+        SetEvent(_HasNewWorkEvent);
+    }
+    return true;
+}
+
+void WorkPool::WorkerThreadProc( void* arg )
+{
+    WorkPool* pThis = static_cast<WorkPool*>(arg);
+    std::map<DWORD,ThreadState>& States = pThis->_States;
+    HANDLE HasNewWorkEvent = pThis->_HasNewWorkEvent;
+    std::list<Work>& Works = pThis->_Works;
+    port::Mutex& mu = pThis->_mu;
+    const DWORD MyId = ::GetCurrentThreadId();
+
+    mu.Lock();
+    ThreadState currentState = States[MyId] = Idle;
+    mu.Unlock();
+
+    while(true){
+        mu.Lock();
+        if(States[MyId] == ShutDown){
+            mu.Unlock();
+            break;
+        }
+        if(!Works.empty()){
+            Work work = *Works.begin();
+            Works.pop_front();
+            States[MyId] = Working;
+            mu.Unlock();
+            work.function(work.arg);
+        }else{
+            States[MyId] = Idle;
+            OnIdle(mu,States);
+            mu.Unlock();
+            ::WaitForSingleObject(HasNewWorkEvent,25);
+        }
+    }
+}
+
+void WorkPool::OnIdle( ::leveldb::port::Mutex& mu,std::map<DWORD,ThreadState>& States )
+{
+    std::vector<DWORD> Ids;
+    for(std::map<DWORD,ThreadState>::iterator iter = States.begin() ;
+        iter != States.end() ; iter++) {
+            if(iter->second == ShutDown)
+                Ids.push_back(iter->first);
+    }
+    for(std::vector<DWORD>::iterator iter = Ids.begin();
+        iter != Ids.end() ; iter++) {
+            HANDLE hThread = NULL;
+            if(hThread = OpenThread(THREAD_QUERY_INFORMATION,FALSE,*iter)){
+                CloseHandle(hThread);
+            }else
+                States.erase(*iter);
+    }
+}
+
+void WorkPool::Init()
+{
+    _HasNewWorkEvent = CreateEvent(NULL,FALSE,FALSE,NULL);
+    AddThread(DefaultThreadsCount);
+}
+
+void WorkPool::Uninit()
+{
+    DestoryThread(GetCurrentThreadCount());
+    CloseHandle(_HasNewWorkEvent);
+    _HasNewWorkEvent = NULL;
+}
+
+void WorkPool::AddThread( size_t count )
+{
+    for(size_t i = 0 ; i < count ; i++){
+        HANDLE hThread = (HANDLE)_beginthread(WorkerThreadProc,0,this);
+    }
+}
+
+void WorkPool::DestoryThread( size_t count )
+{
+    port::AutoLock __lock(_mu);
+    size_t RealCount = count < _States.size() ? count : _States.size();
+    std::map<DWORD,ThreadState>::iterator iter = _States.begin();
+    for(size_t i = 0 ; i < RealCount && iter != _States.end() ;iter++){
+        if(iter->second != ShutDown){
+            iter->second = ShutDown;
+            i++;
+        }
+            
+    }
+}
+
+
+}
+
+
 
 Env* Env::Default() 
 {
@@ -534,7 +607,7 @@ bool Win32Env::FileExists(const std::string& fname)
 {
     std::string path = fname;
     Win32::ModifyPath(path);
-    return ::PathFileExists(Win32::MultiByteToWChar(path.c_str() ) ) ? true : false;
+    return ::PathFileExistsW(Win32::MultiByteToWChar(path.c_str() ) ) ? true : false;
 }
 
 Status Win32Env::GetChildren(const std::string& dir, std::vector<std::string>* result)
@@ -543,16 +616,15 @@ Status Win32Env::GetChildren(const std::string& dir, std::vector<std::string>* r
     ::WIN32_FIND_DATAW wfd;
     std::string path = dir;
     Win32::ModifyPath(path);
+    path += "\\*.*";
     ::HANDLE hFind = ::FindFirstFileW(
-        Win32::MultiByteToWChar(std::string(path).append("\\*.*").c_str() ) ,&wfd);
+        Win32::MultiByteToWChar(path.c_str() ) ,&wfd);
     if(hFind && hFind != INVALID_HANDLE_VALUE){
         BOOL hasNext = TRUE;
-        std::string root = path + '/';
         std::string child;
         while(hasNext){
             child = Win32::WCharToMultiByte(wfd.cFileName); 
-            if(child.find("..",child.length() - 2) == std::string::npos &&
-                child.find(".",child.length() - 1) == std::string::npos )  {
+            if(child != ".." && child != ".")  {
                 result->push_back(child);
             }
             hasNext = ::FindNextFileW(hFind,&wfd);

@@ -59,8 +59,13 @@ void Mutex::Unlock()
 
 void Mutex::AssertHeld()
 {
-    assert(_cs.OwningThread == (HANDLE)GetCurrentThreadId());
+    assert(_cs.OwningThread == reinterpret_cast<HANDLE>(GetCurrentThreadId()) );
         
+}
+
+BOOL Mutex::TryLock()
+{
+    return TryEnterCriticalSection(&_cs);
 }
 
 
