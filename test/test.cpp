@@ -11,7 +11,7 @@
 
 #include <conio.h>
 
-#define DB_TEST
+#define DB_BENCH
 
 #if defined DB_BENCH
 #include "..\leveldb\db\db_bench.cc"
