@@ -15,6 +15,7 @@
 #ifndef STORAGE_LEVELDB_INCLUDE_SLICE_H_
 #define STORAGE_LEVELDB_INCLUDE_SLICE_H_
 
+#include "../leveldb/win32exports.h"
 #include <assert.h>
 #include <stddef.h>
 #include <string.h>
@@ -22,7 +23,7 @@
 
 namespace leveldb {
 
-class Slice {
+class LEVELDB_EXPORT Slice {
  public:
   // Create an empty slice.
   Slice() : data_(""), size_(0) { }

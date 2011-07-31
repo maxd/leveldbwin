@@ -18,6 +18,7 @@
 #ifndef STORAGE_LEVELDB_INCLUDE_CACHE_H_
 #define STORAGE_LEVELDB_INCLUDE_CACHE_H_
 
+#include "../leveldb/win32exports.h"
 #include <stdint.h>
 #include "../leveldb/slice.h"
 
@@ -29,7 +30,7 @@ class Cache;
 // of Cache uses a least-recently-used eviction policy.
 extern Cache* NewLRUCache(size_t capacity);
 
-class Cache {
+class LEVELDB_EXPORT Cache {
  public:
   Cache() { }
 

@@ -3,16 +3,33 @@
 
 #include "stdafx.h"
 #include "..\leveldb\leveldb\db.h"
+
 #if defined _DEBUG
+
+#if defined LEVELDB_DLL
+#pragma comment(lib,"..\\DebugDll\\leveldb.lib")
+#else
 #pragma comment(lib,"..\\Debug\\leveldb.lib")
+#endif
+
+#else
+
+#if defined LEVELDB_DLL
+#pragma comment(lib,"..\\ReleaseDll\\leveldb.lib")
 #else
 #pragma comment(lib,"..\\Release\\leveldb.lib")
+#endif
+
 #endif
 
 #include <conio.h>
 
 #define DB_BENCH
 
+#if defined LEVELDB_DLL
+#undef DB_BENCH
+#undef DB_TEST
+#endif
 #if defined DB_BENCH
 #include "..\leveldb\db\db_bench.cc"
 #elif defined DB_TEST
@@ -20,7 +37,7 @@
 #else 
 int _tmain(int argc, _TCHAR* argv[])
 {
-    leveldb::DB* db;
+    leveldb::DB* db = NULL;
     leveldb::Options options;
     options.compression = leveldb::kNoCompression;
     options.create_if_missing = true;
@@ -38,7 +55,7 @@ int _tmain(int argc, _TCHAR* argv[])
     if (s.ok()) s = db->Put(leveldb::WriteOptions(), key2, value);
     if (s.ok()) s = db->Delete(leveldb::WriteOptions(), key1);
     delete db;
-    s =  leveldb::DestroyDB("c:/tmp/testdb",options);
+    //s =  leveldb::DestroyDB("c:/tmp/testdb",options);
     if(!s.ok()){
         printf("%s",s.ToString().c_str());
     }

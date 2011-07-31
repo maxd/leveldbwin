@@ -33,15 +33,16 @@ typedef ATL::CW2AEX<MAX_PATH> WCharToMultiByte;
 typedef ATL::CA2AEX<MAX_PATH> MultiByteToAnsi;
 
 std::string GetCurrentDir();
-
 std::wstring GetCurrentDirW();
 
 static const std::string CurrentDir = GetCurrentDir();
 static const std::wstring CurrentDirW = GetCurrentDirW();
 
 std::string& ModifyPath(std::string& path);
-
 std::wstring& ModifyPath(std::wstring& path);
+
+std::string GetLastErrSz();
+std::wstring GetLastErrSzW();
 
 class WorkPool
 {
@@ -125,10 +126,13 @@ public:
     virtual ~Win32SequentialFile();
     virtual Status Read(size_t n, Slice* result, char* scratch);
     virtual Status Skip(uint64_t n);
+    BOOL isEnable();
+    BOOL Init();
+    void CleanUp();
 private:
-    Win32SequentialFile(const std::string& fname, FILE* f);
+    Win32SequentialFile(const std::string& fname);
     std::string _filename;
-    FILE* _file;
+    ::HANDLE _hFile;
 };
 
 class Win32RandomAccessFile : public RandomAccessFile
@@ -269,6 +273,45 @@ std::wstring& ModifyPath(std::wstring& path)
     std::replace(path.begin(),path.end(),L'/',L'\\');
     return path;
 }
+
+std::string GetLastErrSz()
+{
+    LPVOID lpMsgBuf;
+    FormatMessageW( 
+        FORMAT_MESSAGE_ALLOCATE_BUFFER | 
+        FORMAT_MESSAGE_FROM_SYSTEM | 
+        FORMAT_MESSAGE_IGNORE_INSERTS,
+        NULL,
+        GetLastError(),
+        0, // Default language
+        (LPWSTR) &lpMsgBuf,
+        0,
+        NULL 
+        );
+    std::string Err = WCharToMultiByte((LPCWSTR)lpMsgBuf); 
+    LocalFree( lpMsgBuf );
+    return Err;
+}
+
+std::wstring GetLastErrSzW()
+{
+    LPVOID lpMsgBuf;
+    FormatMessageW( 
+        FORMAT_MESSAGE_ALLOCATE_BUFFER | 
+        FORMAT_MESSAGE_FROM_SYSTEM | 
+        FORMAT_MESSAGE_IGNORE_INSERTS,
+        NULL,
+        GetLastError(),
+        0, // Default language
+        (LPWSTR) &lpMsgBuf,
+        0,
+        NULL 
+        );
+    std::wstring Err = (LPCWSTR)lpMsgBuf;
+    LocalFree(lpMsgBuf);
+    return Err;
+}
+
 
 WorkPool::WorkPool() : _HasNewWorkEvent(NULL),_PoolWorking(false)
 {
@@ -419,25 +462,25 @@ Env* Env::Default()
     return Win32::SingletonHelper<Win32Env>::GetPointer();
 }
 
-Win32SequentialFile::Win32SequentialFile( const std::string& fname, FILE* f ) :
-_filename(fname),_file(f)
+Win32SequentialFile::Win32SequentialFile( const std::string& fname ) :
+    _filename(fname),_hFile(NULL)
 {
-
+    Init();
 }
 
 Win32SequentialFile::~Win32SequentialFile()
 {
-    fclose(_file);
+    CleanUp();
 }
 
 Status Win32SequentialFile::Read( size_t n, Slice* result, char* scratch )
 {
     Status sRet;
-    size_t r = fread(scratch, 1, n, _file);
-    *result = Slice(scratch, r);
-    if (r < n) {
-        if (!feof(_file) )
-            sRet = Status::IOError(_filename, strerror(errno));
+    DWORD hasRead = 0;
+    if(_hFile && ReadFile(_hFile,scratch,n,&hasRead,NULL) ){
+        *result = Slice(scratch,hasRead);
+    } else {
+        sRet = Status::IOError(_filename, Win32::GetLastErrSz() );
     }
     return sRet;
 }
@@ -445,10 +488,37 @@ Status Win32SequentialFile::Read( size_t n, Slice* result, char* scratch )
 Status Win32SequentialFile::Skip( uint64_t n )
 {
     Status sRet;
-    if (fseek(_file, n, SEEK_CUR)) {
-        sRet = Status::IOError(_filename, strerror(errno));
+    LARGE_INTEGER Move,NowPointer;
+    Move.QuadPart = n;
+    if(!SetFilePointerEx(_hFile,Move,&NowPointer,FILE_CURRENT)){
+        sRet = Status::IOError(_filename,Win32::GetLastErrSz());
     }
     return sRet;
+}
+
+BOOL Win32SequentialFile::isEnable()
+{
+    return _hFile ? TRUE : FALSE;
+}
+
+BOOL Win32SequentialFile::Init()
+{
+    _hFile = CreateFileW(Win32::MultiByteToWChar(_filename.c_str() ),
+                         GENERIC_READ,
+                         FILE_SHARE_READ,
+                         NULL,
+                         OPEN_EXISTING,
+                         FILE_ATTRIBUTE_NORMAL,
+                         NULL);
+    return _hFile ? TRUE : FALSE;
+}
+
+void Win32SequentialFile::CleanUp()
+{
+    if(_hFile){
+        CloseHandle(_hFile);
+        _hFile = NULL;
+    }
 }
 
 Win32RandomAccessFile::Win32RandomAccessFile( const std::string& fname ) :
@@ -469,7 +539,7 @@ Status Win32RandomAccessFile::Read( uint64_t offset, size_t n, Slice* result,cha
     filePointer.QuadPart = offset;
     DWORD hasRead;
     if(!(::SetFilePointerEx(_hFile,filePointer,NULL,FILE_BEGIN) && 
-        ::ReadFile(_hFile,scratch,n,&hasRead,NULL) ) ){
+         ::ReadFile(_hFile,scratch,n,&hasRead,NULL) ) ){
             sRet = Status::IOError(_filename, "Could not preform read");
     }else
         *result = Slice(scratch,hasRead);
@@ -496,12 +566,14 @@ BOOL Win32RandomAccessFile::isEnable()
 
 void Win32RandomAccessFile::CleanUp()
 {
-    ::CloseHandle(_hFile);
-    _hFile = NULL;
+    if(_hFile){
+        ::CloseHandle(_hFile);
+        _hFile = NULL;
+    }
 }
 
 Win32WritableFile::Win32WritableFile( const std::string& fname, FILE* f ) :
-_filename(fname), _file(f)
+    _filename(fname), _file(f)
 {
 
 }
@@ -767,12 +839,13 @@ Status Win32Env::NewSequentialFile( const std::string& fname, SequentialFile** r
     Status sRet;
     std::string path = fname;
     Win32::ModifyPath(path);
-    FILE* f = fopen(path.c_str(), "rb");
-    if (f == NULL) {
-        *result = NULL;
-        sRet = Status::IOError(path, strerror(errno));
-    } else
-        *result = new Win32SequentialFile(path, f);
+    Win32SequentialFile* pFile = new Win32SequentialFile(path);
+    if(pFile->isEnable()){
+        *result = pFile;
+    }else {
+        delete pFile;
+        sRet = Status::IOError(path, Win32::GetLastErrSz());
+    }
     return sRet;
 }
 

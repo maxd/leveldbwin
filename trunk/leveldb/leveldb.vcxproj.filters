@@ -167,6 +167,9 @@
     <ClInclude Include="port\port_chromium.h">
       <Filter>port</Filter>
     </ClInclude>
+    <ClInclude Include="leveldb\win32exports.h">
+      <Filter>leveldb</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="stdafx.cpp">

@@ -2,9 +2,11 @@
 // Use of this source code is governed by a BSD-style license that can be
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
+
 #ifndef STORAGE_LEVELDB_INCLUDE_DB_H_
 #define STORAGE_LEVELDB_INCLUDE_DB_H_
 
+#include "../leveldb/win32exports.h"
 #include <stdint.h>
 #include <stdio.h>
 #include "../leveldb/iterator.h"
@@ -39,7 +41,7 @@ struct Range {
 // A DB is a persistent ordered map from keys to values.
 // A DB is safe for concurrent access from multiple threads without
 // any external synchronization.
-class DB {
+class LEVELDB_EXPORT DB {
  public:
   // Open the database with the specified "name".
   // Stores a pointer to a heap-allocated database in *dbptr and returns
@@ -135,13 +137,13 @@ class DB {
 
 // Destroy the contents of the specified database.
 // Be very careful using this method.
-Status DestroyDB(const std::string& name, const Options& options);
+Status LEVELDB_EXPORT DestroyDB(const std::string& name, const Options& options);
 
 // If a DB cannot be opened, you may attempt to call this method to
 // resurrect as much of the contents of the database as possible.
 // Some data may be lost, so be careful when calling this function
 // on a database that contains important information.
-Status RepairDB(const std::string& dbname, const Options& options);
+Status LEVELDB_EXPORT RepairDB(const std::string& dbname, const Options& options);
 
 }
 
