@@ -13,6 +13,7 @@
 #ifndef STORAGE_LEVELDB_INCLUDE_ENV_H_
 #define STORAGE_LEVELDB_INCLUDE_ENV_H_
 
+#include "../leveldb/win32exports.h"
 #include <cstdarg>
 #include <string>
 #include <vector>
@@ -27,7 +28,7 @@ class SequentialFile;
 class Slice;
 class WritableFile;
 
-class Env {
+class LEVELDB_EXPORT Env {
  public:
   Env() { }
   virtual ~Env();
@@ -151,7 +152,7 @@ class Env {
 };
 
 // A file abstraction for reading sequentially through a file
-class SequentialFile {
+class LEVELDB_EXPORT SequentialFile {
  public:
   SequentialFile() { }
   virtual ~SequentialFile();
@@ -175,7 +176,7 @@ class SequentialFile {
 };
 
 // A file abstraction for randomly reading the contents of a file.
-class RandomAccessFile {
+class LEVELDB_EXPORT RandomAccessFile {
  public:
   RandomAccessFile() { }
   virtual ~RandomAccessFile();
@@ -194,7 +195,7 @@ class RandomAccessFile {
 // A file abstraction for sequential writing.  The implementation
 // must provide buffering since callers may append small fragments
 // at a time to the file.
-class WritableFile {
+class LEVELDB_EXPORT WritableFile {
  public:
   WritableFile() { }
   virtual ~WritableFile();
@@ -211,7 +212,7 @@ class WritableFile {
 };
 
 // Identifies a locked file.
-class FileLock {
+class LEVELDB_EXPORT FileLock {
  public:
   FileLock() { }
   virtual ~FileLock();
@@ -222,24 +223,24 @@ class FileLock {
 };
 
 // Log the specified data to *info_log if info_log is non-NULL.
-extern void Log(Env* env, WritableFile* info_log, const char* format, ...)
+extern void LEVELDB_EXPORT Log(Env* env, WritableFile* info_log, const char* format, ...)
 #   if defined(__GNUC__) || defined(__clang__)
     __attribute__((__format__ (__printf__, 3, 4)))
 #   endif
     ;
 
 // A utility routine: write "data" to the named file.
-extern Status WriteStringToFile(Env* env, const Slice& data,
+extern Status LEVELDB_EXPORT WriteStringToFile(Env* env, const Slice& data,
                                 const std::string& fname);
 
 // A utility routine: read contents of named file into *data
-extern Status ReadFileToString(Env* env, const std::string& fname,
+extern Status LEVELDB_EXPORT ReadFileToString(Env* env, const std::string& fname,
                                std::string* data);
 
 // An implementation of Env that forwards all calls to another Env.
 // May be useful to clients who wish to override just part of the
 // functionality of another Env.
-class EnvWrapper : public Env {
+class LEVELDB_EXPORT EnvWrapper : public Env {
  public:
   // Initialize an EnvWrapper that delegates all calls to *target
   explicit EnvWrapper(Env* target) : target_(target) { }

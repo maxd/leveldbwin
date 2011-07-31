@@ -15,12 +15,13 @@
 #ifndef STORAGE_LEVELDB_INCLUDE_ITERATOR_H_
 #define STORAGE_LEVELDB_INCLUDE_ITERATOR_H_
 
+#include "../leveldb/win32exports.h"
 #include "../leveldb/slice.h"
 #include "../leveldb/status.h"
 
 namespace leveldb {
 
-class Iterator {
+class LEVELDB_EXPORT Iterator {
  public:
   Iterator();
   virtual ~Iterator();
