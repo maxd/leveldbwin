@@ -53,7 +53,7 @@ int _tmain(int argc, _TCHAR* argv[])
     std::string value;
     leveldb::Status s = db->Get(leveldb::ReadOptions(), key1, &value);
     if (s.ok()) s = db->Put(leveldb::WriteOptions(), key2, value);
-    if (s.ok()) s = db->Delete(leveldb::WriteOptions(), key1);
+    //if (s.ok()) s = db->Delete(leveldb::WriteOptions(), key1);
     delete db;
     //s =  leveldb::DestroyDB("c:/tmp/testdb",options);
     if(!s.ok()){
