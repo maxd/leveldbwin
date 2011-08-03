@@ -7,9 +7,9 @@
 #if defined _DEBUG
 
 #if defined LEVELDB_DLL
-#pragma comment(lib,"..\\DebugDll\\leveldb.lib")
+#pragma comment(lib,"..\\DebugDll\\leveldb_d.lib")
 #else
-#pragma comment(lib,"..\\Debug\\leveldb.lib")
+#pragma comment(lib,"..\\Debug\\leveldb_d.lib")
 #endif
 
 #else
@@ -24,7 +24,7 @@
 
 #include <conio.h>
 
-#define DB_BENCH
+#define DB_TEST
 
 #if defined LEVELDB_DLL
 #undef DB_BENCH
@@ -39,7 +39,6 @@ int _tmain(int argc, _TCHAR* argv[])
 {
     leveldb::DB* db = NULL;
     leveldb::Options options;
-    options.compression = leveldb::kNoCompression;
     options.create_if_missing = true;
     leveldb::Status status = leveldb::DB::Open(options, "c:/tmp/testdb", &db);
     assert(status.ok());
