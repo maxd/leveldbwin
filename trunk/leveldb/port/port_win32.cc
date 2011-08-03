@@ -4,6 +4,17 @@
 #include <cassert>
 #include <algorithm>
 
+#if defined USE_SNAPPY
+#include "..\..\snappy\snappy.h"
+
+#if defined _DEBUG
+#pragma comment(lib,"..\\Debug\\snappy.lib")
+#else
+#pragma comment(lib,"..\\Release\\snappy.lib")
+#endif
+
+#endif
+
 namespace leveldb
 {
 
