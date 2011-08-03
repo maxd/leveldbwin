@@ -164,9 +164,6 @@
     <ClInclude Include="port\port_win32.h">
       <Filter>port</Filter>
     </ClInclude>
-    <ClInclude Include="port\port_chromium.h">
-      <Filter>port</Filter>
-    </ClInclude>
     <ClInclude Include="leveldb\win32exports.h">
       <Filter>leveldb</Filter>
     </ClInclude>
@@ -274,12 +271,6 @@
     <ClCompile Include="util\env.cc">
       <Filter>util</Filter>
     </ClCompile>
-    <ClCompile Include="util\env_chromium.cc">
-      <Filter>util</Filter>
-    </ClCompile>
-    <ClCompile Include="util\env_posix.cc">
-      <Filter>util</Filter>
-    </ClCompile>
     <ClCompile Include="util\env_test.cc">
       <Filter>util</Filter>
     </ClCompile>
@@ -336,9 +327,6 @@
     </ClCompile>
     <ClCompile Include="util\env_win32.cc">
       <Filter>util</Filter>
-    </ClCompile>
-    <ClCompile Include="port\port_chromium.cc">
-      <Filter>port</Filter>
     </ClCompile>
   </ItemGroup>
 </Project>
