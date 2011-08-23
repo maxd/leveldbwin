@@ -48,6 +48,32 @@ bool Snappy_Uncompress(const char* input_data, size_t input_length,
 #endif
 }
 
+Event::Event( bool bSignal,bool ManualReset ) : _hEvent(NULL)
+{
+    _hEvent = ::CreateEvent(NULL,ManualReset,bSignal,NULL);
+}
+
+Event::~Event()
+{
+    Signal();
+    CloseHandle(_hEvent);
+}
+
+void Event::Wait(DWORD Milliseconds /*= INFINITE*/ )
+{
+    WaitForSingleObject(_hEvent,Milliseconds);
+}
+
+void Event::Signal()
+{
+    SetEvent(_hEvent);
+}
+
+void Event::UnSignal()
+{
+    ResetEvent(_hEvent);
+}
+
 Mutex::Mutex()
 {
     InitializeCriticalSection(&_cs);
@@ -203,6 +229,37 @@ void CondVarNew::Signal()
 void CondVarNew::SignalAll()
 {
     WakeAllConditionVariable(&_cv);
+}
+
+
+RWLock::RWLock()
+{
+    InitializeSRWLock(&_srw);
+}
+
+RWLock::~RWLock()
+{
+
+}
+
+void RWLock::ReadLock()
+{
+    AcquireSRWLockShared(&_srw);
+}
+
+void RWLock::ReadUnlock()
+{
+    ReleaseSRWLockShared(&_srw);
+}
+
+void RWLock::WriteLock()
+{
+    AcquireSRWLockExclusive(&_srw);
+}
+
+void RWLock::WriteUnlock()
+{
+    ReleaseSRWLockExclusive(&_srw);
 }
 
 }

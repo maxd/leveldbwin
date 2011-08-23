@@ -44,43 +44,47 @@ std::wstring& ModifyPath(std::wstring& path);
 std::string GetLastErrSz();
 std::wstring GetLastErrSzW();
 
-class WorkPool
+class TaskRunner
 {
 public:
-    struct Work
+    struct Task
     {
-        Work(void (*_function)(void*) = NULL, void* _arg = NULL) :
-            function(_function),arg(_arg) { }
+        Task(void (*function_)(void*), void* arg_ = NULL) :
+            function(function_),arg(arg_) { }
         void (*function)(void*);
         void* arg;
     };
-    WorkPool();
-    ~WorkPool();
-    bool SetThreadCount(size_t count);
-    size_t GetCurrentThreadCount();
-    bool AddWork( void (*function)(void* arg), void* arg );
-    bool AddWork(Work work);
+    TaskRunner();
+    ~TaskRunner();
+    bool AddTask(const Task& task);
+    bool AddTask( void (*function_)(void*), void* arg_ );
+    bool SetThreadCount(size_t Count);
+    size_t GetThreadCount();
     static const size_t DefaultThreadsCount = 5;
+
 private:
+    DISALLOW_COPY_AND_ASSIGN(TaskRunner);
     enum ThreadState
     {
         Unknown,
+        Preparing,
         Working,
         Idle,
         ShutDown
     };
-    static void WorkerThreadProc(void* arg);
-    static void OnIdle(::leveldb::port::Mutex& mu,std::map<DWORD,ThreadState>& States);
-    void Init();
-    void Uninit();
-    void AddThread(size_t count);
-    void DestoryThread(size_t count);
-    DISALLOW_COPY_AND_ASSIGN(WorkPool);
-    ::leveldb::port::Mutex _mu;
-    std::list<Work> _Works;
+    static void _WorkingThreadProc(void* arg);
+    static const size_t _DefaultWatingTime = 20;
+    void _Init();
+    void _UnInit();
+    int _AddThread(int Count);
+    int _DestroyThread(int Count);
+    std::list<Task> _QueuedTasks;
     std::map<DWORD,ThreadState> _States;
-    HANDLE _HasNewWorkEvent;
-    bool _PoolWorking;
+    port::RWLock _i_states_lock;
+    port::Mutex _i_tasks_lock;
+    port::Event _OnAllRelease;
+    port::Event _OnHasNewTask;
+    bool _IsWorking;
 };
 
 template<typename T>
@@ -225,7 +229,7 @@ public:
 
     virtual void SleepForMicroseconds(int micros);
 private:
-    Win32::WorkPool _pool;
+    Win32::TaskRunner _runner;
 };
 
 Win32::SingletonHelper<Win32Env> g_Env;
@@ -312,146 +316,165 @@ std::wstring GetLastErrSzW()
     return Err;
 }
 
-
-WorkPool::WorkPool() : _HasNewWorkEvent(NULL),_PoolWorking(false)
+void TaskRunner::_WorkingThreadProc( void* arg )
 {
-    Init();
-    _PoolWorking = true;
-}
-
-WorkPool::~WorkPool()
-{
-    _PoolWorking = false;
-    Uninit();
-}
-
-bool WorkPool::SetThreadCount( size_t count )
-{
-    if(_PoolWorking){
-        int needs = (int)count - (int)GetCurrentThreadCount();
-        if(needs > 0)
-            AddThread(needs);
-        else if(needs < 0 )
-            DestoryThread(-needs);
-    }
-
-    return true;
-}
-
-size_t WorkPool::GetCurrentThreadCount()
-{
-    _mu.Lock();
-    size_t c = 0;
-    for(std::map<DWORD,ThreadState>::iterator iter = _States.begin() ;
-        iter != _States.end() ; iter++){
-            if(!iter->second == Working)
-                c++;
-    }
-    _mu.Unlock();
-    return c;
-}
-
-bool WorkPool::AddWork( void (*function)(void* arg), void* arg )
-{
-    return AddWork(Work(function,arg));
-}
-
-bool WorkPool::AddWork( Work work )
-{
-    if(_PoolWorking){
-        port::AutoLock __lock(_mu);
-        _Works.push_back(work);
-        SetEvent(_HasNewWorkEvent);
-    }
-    return true;
-}
-
-void WorkPool::WorkerThreadProc( void* arg )
-{
-    WorkPool* pThis = static_cast<WorkPool*>(arg);
+    TaskRunner* pThis = static_cast<TaskRunner*>(arg);
     std::map<DWORD,ThreadState>& States = pThis->_States;
-    HANDLE HasNewWorkEvent = pThis->_HasNewWorkEvent;
-    std::list<Work>& Works = pThis->_Works;
-    port::Mutex& mu = pThis->_mu;
+    std::list<Task>& QueuedTasks = pThis->_QueuedTasks;
+    port::RWLock& states_lock = pThis->_i_states_lock;
+    port::Mutex& tasks_lock = pThis->_i_tasks_lock;
+    port::Event& OnAllRelease = pThis->_OnAllRelease;
+    port::Event& OnHasNewTask = pThis->_OnHasNewTask;
+    bool& IsWorking = pThis->_IsWorking;
+
     const DWORD MyId = ::GetCurrentThreadId();
 
-    mu.Lock();
-    ThreadState currentState = States[MyId] = Idle;
-    mu.Unlock();
+    states_lock.WriteLock();
+    ThreadState CurrentState = (States[MyId] = Idle);
+    states_lock.WriteUnlock();
 
     while(true){
-        mu.Lock();
+        states_lock.ReadLock(); 
+        //states_lock only lock in write mode when add or remove a value in States.
         if(States[MyId] == ShutDown){
-            mu.Unlock();
+            states_lock.ReadUnlock();
             break;
         }
-        if(!Works.empty()){
-            Work work = *Works.begin();
-            Works.pop_front();
+        tasks_lock.Lock();
+        if(!QueuedTasks.empty()){
+            Task task = *(--QueuedTasks.end());
+            QueuedTasks.pop_back();
+
+            tasks_lock.Unlock();
             States[MyId] = Working;
-            mu.Unlock();
-            work.function(work.arg);
+            states_lock.ReadUnlock();
+
+            task.function(task.arg);
         }else{
+            tasks_lock.Unlock();
             States[MyId] = Idle;
-            OnIdle(mu,States);
-            mu.Unlock();
-            ::WaitForSingleObject(HasNewWorkEvent,25);
+            states_lock.ReadUnlock();
+
+            OnHasNewTask.Wait(_DefaultWatingTime);
         }
     }
+
+    states_lock.WriteLock();
+    States.erase(MyId);
+    if(!IsWorking && States.size() == 0){
+        states_lock.WriteUnlock();
+        OnAllRelease.Signal();
+    } else
+        states_lock.WriteUnlock();
 }
 
-void WorkPool::OnIdle( ::leveldb::port::Mutex& mu,std::map<DWORD,ThreadState>& States )
+TaskRunner::TaskRunner() : _IsWorking(true)
 {
-    std::vector<DWORD> Ids;
-    for(std::map<DWORD,ThreadState>::iterator iter = States.begin() ;
-        iter != States.end() ; iter++) {
-            if(iter->second == ShutDown)
-                Ids.push_back(iter->first);
+    _Init();
+}
+
+TaskRunner::~TaskRunner()
+{
+    _UnInit();
+    _OnAllRelease.Wait();
+}
+
+void TaskRunner::_Init()
+{
+    _OnAllRelease.UnSignal();
+    _OnHasNewTask.UnSignal();
+    _AddThread(DefaultThreadsCount);
+}
+
+void TaskRunner::_UnInit()
+{
+    _IsWorking = false;
+    _DestroyThread(GetThreadCount());
+}
+
+int TaskRunner::_AddThread( int Count )
+{
+    assert(Count > 0);
+    size_t current = GetThreadCount();
+    _i_states_lock.WriteLock();
+    for(int i = 0 ;i < Count ; i++){
+        HANDLE hThread = reinterpret_cast<HANDLE>(_beginthread(_WorkingThreadProc,0,this));
+        _States[GetThreadId(hThread)] = Preparing;
     }
-    for(std::vector<DWORD>::iterator iter = Ids.begin();
-        iter != Ids.end() ; iter++) {
-            HANDLE hThread = NULL;
-            if(hThread = OpenThread(THREAD_QUERY_INFORMATION,FALSE,*iter)){
-                CloseHandle(hThread);
-            }else
-                States.erase(*iter);
-    }
+    _i_states_lock.WriteUnlock();
+    return current + Count;
 }
 
-void WorkPool::Init()
+int TaskRunner::_DestroyThread( int Count )
 {
-    _HasNewWorkEvent = CreateEvent(NULL,FALSE,FALSE,NULL);
-    AddThread(DefaultThreadsCount);
-}
-
-void WorkPool::Uninit()
-{
-    DestoryThread(GetCurrentThreadCount());
-    CloseHandle(_HasNewWorkEvent);
-    _HasNewWorkEvent = NULL;
-}
-
-void WorkPool::AddThread( size_t count )
-{
-    for(size_t i = 0 ; i < count ; i++){
-        HANDLE hThread = (HANDLE)_beginthread(WorkerThreadProc,0,this);
-    }
-}
-
-void WorkPool::DestoryThread( size_t count )
-{
-    port::AutoLock __lock(_mu);
-    size_t RealCount = count < _States.size() ? count : _States.size();
-    std::map<DWORD,ThreadState>::iterator iter = _States.begin();
-    for(size_t i = 0 ; i < RealCount && iter != _States.end() ;iter++){
-        if(iter->second != ShutDown){
-            iter->second = ShutDown;
-            i++;
+    size_t current = GetThreadCount();
+    if(current >= Count){
+        _i_states_lock.WriteLock();
+        size_t hasShutDown = 0;
+        for(std::map<DWORD,ThreadState>::iterator i = _States.begin(); i != _States.end(); i++){
+            if(i->second == Idle){
+                i->second = ShutDown;
+                hasShutDown++;
+            }
+            if(hasShutDown == Count)
+                break;
         }
-            
-    }
+        if(hasShutDown < Count){
+            for(std::map<DWORD,ThreadState>::iterator i = _States.begin(); i != _States.end(); i++){
+                if(i->second != ShutDown){
+                    i->second = ShutDown;
+                    hasShutDown++;
+                }
+                if(hasShutDown == Count)
+                    break;
+            }
+        }
+        _i_states_lock.WriteUnlock();
+        return current - Count;
+    }else
+        return -1;
 }
 
+size_t TaskRunner::GetThreadCount()
+{
+    size_t Count = 0;
+    _i_states_lock.ReadLock();
+    for(std::map<DWORD,ThreadState>::iterator i = _States.begin(); i != _States.end(); i++){
+        if(i->second != ShutDown)
+            Count++;
+    }
+    _i_states_lock.ReadUnlock();
+    return Count;
+}
+
+bool TaskRunner::SetThreadCount( size_t Count )
+{
+    if(Count < 1)
+        return false;
+    size_t Current = GetThreadCount();
+    if(Current > Count)
+        _DestroyThread(Current - Count);
+    else if(Current < Count)
+        _AddThread(Count - Current);
+    return true;
+}
+
+bool TaskRunner::AddTask( const Task& task )
+{
+    if(_IsWorking){
+        _i_tasks_lock.Lock();
+        _QueuedTasks.push_front(task);
+        _i_tasks_lock.Unlock();
+        _OnHasNewTask.Signal();
+        return true;
+    }else
+        return false;
+}
+
+bool TaskRunner::AddTask( void (*function_)(void*), void* arg_ )
+{
+    return AddTask(Task(function_,arg_));
+}
 
 }
 
@@ -785,7 +808,7 @@ Status Win32Env::UnlockFile( FileLock* lock )
 
 void Win32Env::Schedule( void (*function)(void* arg), void* arg )
 {
-    _pool.AddWork(function,arg);
+    _runner.AddTask(function,arg);
 }
 
 void Win32Env::StartThread( void (*function)(void* arg), void* arg )
