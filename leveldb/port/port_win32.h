@@ -52,6 +52,18 @@ namespace port
     static const bool kLittleEndian = true;
 #endif
 
+class Event
+{
+public:
+    Event(bool bSignal = true,bool ManualReset = false);
+    ~Event();
+    void Wait(DWORD Milliseconds = INFINITE);
+    void Signal();
+    void UnSignal();
+private:
+    HANDLE _hEvent;
+};
+
 class Mutex 
 {
 public:
@@ -68,36 +80,27 @@ private:
     DISALLOW_COPY_AND_ASSIGN(Mutex);
 };
 
+#if defined USE_VISTA_API
 class RWLock
 {
 public:
-    RWLock()
-    {
-        InitializeSRWLock(&_srw);
-    }
-    ~RWLock()
-    {
-
-    }
-    void LockRead()
-    {
-        AcquireSRWLockShared(&_srw);
-    }
-    void UnlockRead()
-    {
-        ReleaseSRWLockShared(&_srw);
-    }
-    void LockWrite()
-    {
-        AcquireSRWLockExclusive(&_srw);
-    }
-    void UnlockWrite()
-    {
-        ReleaseSRWLockExclusive(&_srw);
-    }
+    RWLock();
+    ~RWLock();
+    void ReadLock();
+    void ReadUnlock();
+    void WriteLock();
+    void WriteUnlock();
 private:
     SRWLOCK _srw;
+    DISALLOW_COPY_AND_ASSIGN(RWLock);
 };
+#else
+#define RWLock Mutex
+#define ReadLock Lock
+#define ReadUnlock Unlock
+#define WriteLock Lock
+#define WriteUnlock Unlock
+#endif
 
 class AutoLock
 {
@@ -132,7 +135,6 @@ private:
 };
 
 class CondVarOld
-// I Will use the CONDITION_VARIABLE in Windows SDK for next version.
 {
 public:
     typedef std::list<HANDLE>::iterator HandleIter;
