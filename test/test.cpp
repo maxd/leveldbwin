@@ -3,7 +3,9 @@
 
 #include "stdafx.h"
 #include "..\leveldb\leveldb\db.h"
-
+#include <iostream>
+using std::cout;
+using std::endl;
 #if defined _DEBUG
 
 #if defined LEVELDB_DLL
@@ -24,7 +26,7 @@
 
 #include <conio.h>
 
-#define DB_TEST
+#define DB_BENCH
 
 #if defined LEVELDB_DLL
 #undef DB_BENCH
@@ -34,31 +36,68 @@
 #include "..\leveldb\db\db_bench.cc"
 #elif defined DB_TEST
 #include "..\leveldb\db\db_test.cc"
-#else 
-int _tmain(int argc, _TCHAR* argv[])
+#else
+
+void WriteDb(leveldb::DB* db)
+{
+    const char* Content = "We now decided that after three years it might"
+        " be a good idea to re-assess our current situation by another,"
+        " more extensive survey. It is similar to the original one "
+        "(since we included the old questions to be able to compare the results),"
+        " but the survey also contains a bunch of new ones to take new developments"
+        " such as Ogre usage on mobile devices into account.";
+    char Buff[10];
+    ZeroMemory(Buff,sizeof(Buff));
+    leveldb::WriteOptions wo;
+    wo.sync = false;
+    for(int i = 0 ; i < 2000 ;i++){
+        _itoa_s(i,Buff,10);
+
+        leveldb::Status s = db->Put(wo,Buff,Content);
+    }
+}
+
+void ReadDb(leveldb::DB* db)
+{
+    leveldb::ReadOptions ro;
+    char Buff[10];
+    ZeroMemory(Buff,sizeof(Buff));
+    std::string value__;
+    for(int i = 0 ; i < 2000 ;i++){
+        _itoa_s(i,Buff,10);
+        leveldb::Status s = db->Get(ro,Buff,&value__);
+    }
+}
+
+void tt()
 {
     leveldb::DB* db = NULL;
     leveldb::Options options;
     options.create_if_missing = true;
     leveldb::Status status = leveldb::DB::Open(options, "c:/tmp/testdb", &db);
-    assert(status.ok());
-
-    leveldb::Slice key1 = "one";
-    leveldb::Slice key2 = "two";
-
-    leveldb::WriteOptions wo;
-    db->Put(wo,key1,"111111111111111111111");
-
-    std::string value;
-    leveldb::Status s = db->Get(leveldb::ReadOptions(), key1, &value);
-    if (s.ok()) s = db->Put(leveldb::WriteOptions(), key2, value);
-    //if (s.ok()) s = db->Delete(leveldb::WriteOptions(), key1);
-    delete db;
-    //s =  leveldb::DestroyDB("c:/tmp/testdb",options);
-    if(!s.ok()){
-        printf("%s",s.ToString().c_str());
+    assert( status.ok() );
+    {
+        uint64_t tickbegin = GetTickCount64();
+        WriteDb(db);
+        uint64_t tickend = GetTickCount64();
+        cout << "write 2000 in " << tickend - tickbegin  << " Milliseconds"<< endl;
     }
-	return 0;
+    {
+        uint64_t tickbegin = GetTickCount64();
+        ReadDb(db);
+        uint64_t tickend = GetTickCount64();
+        cout << "read 2000 in " << tickend - tickbegin  << " Milliseconds"<< endl;
+    }
+    delete db;
 }
+
+int _tmain(int argc, _TCHAR* argv[])
+{
+    for(int i = 0 ; i < 100 ; i++){
+        tt();
+    }
+	return _getch();
+}
+
 #endif
 
