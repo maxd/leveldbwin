@@ -2,6 +2,16 @@
 
 #ifndef STORAGE_LEVELDB_PORT_PORT_WIN32_H_
 #define STORAGE_LEVELDB_PORT_PORT_WIN32_H_
+
+#ifndef OS_WIN
+#define OS_WIN
+#endif
+
+#if defined _MSC_VER
+#define COMPILER_MSVC
+#endif
+
+
 #if _MSC_VER >= 1600
 #include <cstdint>
 #else
@@ -12,6 +22,7 @@
 #include <cstring>
 #include <list>
 #include "../port/atomic_pointer.h"
+
 
 
 typedef INT64 int64;

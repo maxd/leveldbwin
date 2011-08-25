@@ -1,3 +1,4 @@
+
 #include "../port/port_win32.h"
 
 #include <stack>
@@ -96,7 +97,7 @@ void Mutex::Unlock()
 
 void Mutex::AssertHeld()
 {
-    assert(_cs.OwningThread == reinterpret_cast<HANDLE>(GetCurrentThreadId()) );
+    assert( _cs.OwningThread == reinterpret_cast<HANDLE>(GetCurrentThreadId() ) );
         
 }
 

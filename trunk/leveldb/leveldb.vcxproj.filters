@@ -167,6 +167,9 @@
     <ClInclude Include="leveldb\win32exports.h">
       <Filter>leveldb</Filter>
     </ClInclude>
+    <ClInclude Include="util\env_win32.h">
+      <Filter>util</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="stdafx.cpp">
@@ -327,6 +330,9 @@
     </ClCompile>
     <ClCompile Include="util\env_win32.cc">
       <Filter>util</Filter>
+    </ClCompile>
+    <ClCompile Include="libmain.cpp">
+      <Filter>Source Files</Filter>
     </ClCompile>
   </ItemGroup>
 </Project>
