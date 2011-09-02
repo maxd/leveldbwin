@@ -7,7 +7,7 @@
 #define STORAGE_LEVELDB_INCLUDE_DB_H_
 
 #include "../leveldb/win32exports.h"
-#include <stdint.h>
+#include "../port/win/stdint.h"
 #include <stdio.h>
 #include "../leveldb/iterator.h"
 #include "../leveldb/options.h"

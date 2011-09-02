@@ -5,7 +5,7 @@
 #ifndef STORAGE_LEVELDB_DB_DB_ITER_H_
 #define STORAGE_LEVELDB_DB_DB_ITER_H_
 
-#include <stdint.h>
+#include "../port/win/stdint.h"
 #include "../leveldb/db.h"
 #include "../db/dbformat.h"
 

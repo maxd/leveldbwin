@@ -36,9 +36,8 @@
 #ifndef UTIL_SNAPPY_OPENSOURCE_SNAPPY_STUBS_PUBLIC_H_
 #define UTIL_SNAPPY_OPENSOURCE_SNAPPY_STUBS_PUBLIC_H_
 
-#if 1
-#include <stdint.h>
-#endif
+#include "../leveldb/port/win/stdint.h"
+
 
 #if 1
 #include <stddef.h>

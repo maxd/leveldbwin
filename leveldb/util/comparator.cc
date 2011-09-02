@@ -3,7 +3,7 @@
 // found in the LICENSE file. See the AUTHORS file for names of contributors.
 
 #include <algorithm>
-#include <stdint.h>
+#include "../port/win/stdint.h"
 #include "../leveldb/comparator.h"
 #include "../leveldb/slice.h"
 #include "../util/logging.h"

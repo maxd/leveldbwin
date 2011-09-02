@@ -11,12 +11,10 @@
 #define COMPILER_MSVC
 #endif
 
+#include <sdkddkver.h>
 
-#if _MSC_VER >= 1600
-#include <cstdint>
-#else
-#include <stdint.h>
-#endif
+#include "../port/win/stdint.h"
+
 
 #include <string>
 #include <cstring>
@@ -73,6 +71,7 @@ public:
     void UnSignal();
 private:
     HANDLE _hEvent;
+    DISALLOW_COPY_AND_ASSIGN(Event);
 };
 
 class Mutex 
@@ -91,28 +90,6 @@ private:
     DISALLOW_COPY_AND_ASSIGN(Mutex);
 };
 
-#if defined USE_VISTA_API
-class RWLock
-{
-public:
-    RWLock();
-    ~RWLock();
-    void ReadLock();
-    void ReadUnlock();
-    void WriteLock();
-    void WriteUnlock();
-private:
-    SRWLOCK _srw;
-    DISALLOW_COPY_AND_ASSIGN(RWLock);
-};
-#else
-#define RWLock Mutex
-#define ReadLock Lock
-#define ReadUnlock Unlock
-#define WriteLock Lock
-#define WriteUnlock Unlock
-#endif
-
 class AutoLock
 {
 public:
@@ -128,6 +105,10 @@ private:
     Mutex& _mu;
     DISALLOW_COPY_AND_ASSIGN(AutoLock);
 };
+
+#ifndef Scoped_Lock_Protect
+#define Scoped_Lock_Protect(mu) AutoLock __auto_lock__(mu)
+#endif
 
 class AutoUnlock
 {
@@ -145,28 +126,92 @@ private:
     DISALLOW_COPY_AND_ASSIGN(AutoUnlock);
 };
 
+#ifndef Scoped_Unlock_Protect
+#define Scoped_Unlock_Protect(mu) AutoUnlock __auto_unlock__(mu)
+#endif
+
+//this class come from project Chromium
 class CondVarOld
 {
 public:
-    typedef std::list<HANDLE>::iterator HandleIter;
+    // Construct a cv for use with ONLY one user lock.
     explicit CondVarOld(Mutex* mu);
     ~CondVarOld();
+    // Wait() releases the caller's critical section atomically as it starts to
+    // sleep, and the reacquires it when it is signaled.
     void Wait();
     void timedWait(DWORD dwMilliseconds);
+    // Signal() revives one waiting thread.
     void Signal();
+    // SignalAll() revives all waiting threads.
     void SignalAll();
 
 private:
-    Mutex* _user_lock;
-    HANDLE GetWaitingHandle();
-    void CloseRecyclingHandles();
-    Mutex _internal_lock;
-    std::list<HANDLE> _waiting_handles;
-    std::list<HANDLE> _recycling_handles;
-    size_t _alloced_handles_count;
-    enum RunState { SHUTDOWN = 0, RUNNING = 64213 } _run_state;
+    class Event {
+    public:
+        // Default constructor with no arguments creates a list container.
+        Event();
+        ~Event();
+
+        // InitListElement transitions an instance from a container, to an element.
+        void InitListElement();
+
+        // Methods for use on lists.
+        bool IsEmpty() const;
+        void PushBack(Event* other);
+        Event* PopFront();
+        Event* PopBack();
+
+        // Methods for use on list elements.
+        // Accessor method.
+        HANDLE handle() const;
+        // Pull an element from a list (if it's in one).
+        Event* Extract();
+
+        // Method for use on a list element or on a list.
+        bool IsSingleton() const;
+
+    private:
+        // Provide pre/post conditions to validate correct manipulations.
+        bool ValidateAsDistinct(Event* other) const;
+        bool ValidateAsItem() const;
+        bool ValidateAsList() const;
+        bool ValidateLinks() const;
+
+        HANDLE handle_;
+        Event* next_;
+        Event* prev_;
+        DISALLOW_COPY_AND_ASSIGN(Event);
+    };
+    // Note that RUNNING is an unlikely number to have in RAM by accident.
+    // This helps with defensive destructor coding in the face of user error.
+    enum RunState { SHUTDOWN = 0, RUNNING = 64213 };
+
+    // Internal implementation methods supporting Wait().
+    Event* GetEventForWaiting();
+    void RecycleEvent(Event* used_event);
+
+    RunState run_state_;
+
+    // Private critical section for access to member data.
+    Mutex internal_lock_;
+
+    // Lock that is acquired before calling Wait().
+    Mutex& user_lock_;
+
+    // Events that threads are blocked on.
+    Event waiting_list_;
+
+    // Free list for old events.
+    Event recycling_list_;
+    int recycling_list_size_;
+
+    // The number of allocated, but not yet deleted events.
+    int allocation_counter_;
     DISALLOW_COPY_AND_ASSIGN(CondVarOld);
 };
+
+#if defined USE_VISTA_API
 
 class CondVarNew
 {
@@ -181,7 +226,6 @@ private:
     Mutex* _mu;
 };
 
-#if defined USE_VISTA_API
 typedef CondVarNew CondVar;
 #else
 typedef CondVarOld CondVar;

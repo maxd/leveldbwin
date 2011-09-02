@@ -17,7 +17,7 @@
 #include <cstdarg>
 #include <string>
 #include <vector>
-#include <stdint.h>
+#include "../port/win/stdint.h"
 #include "../leveldb/status.h"
 
 namespace leveldb {

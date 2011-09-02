@@ -14,7 +14,7 @@
 #define STORAGE_LEVELDB_INCLUDE_TABLE_BUILDER_H_
 
 #include "../leveldb/win32exports.h"
-#include <stdint.h>
+#include "../port/win/stdint.h"
 #include "../leveldb/options.h"
 #include "../leveldb/status.h"
 

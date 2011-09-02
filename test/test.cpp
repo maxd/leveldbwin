@@ -7,7 +7,7 @@
 using std::cout;
 using std::endl;
 #if defined _DEBUG
-
+    
 #if defined LEVELDB_DLL
 #pragma comment(lib,"..\\DebugDll\\leveldb_d.lib")
 #else
@@ -37,6 +37,10 @@ using std::endl;
 #elif defined DB_TEST
 #include "..\leveldb\db\db_test.cc"
 #else
+
+#ifndef USE_VISTA_API
+#define GetTickCount64 GetTickCount
+#endif
 
 void WriteDb(leveldb::DB* db)
 {
@@ -93,9 +97,11 @@ void tt()
 
 int _tmain(int argc, _TCHAR* argv[])
 {
-    for(int i = 0 ; i < 100 ; i++){
+    int repeat = 100;
+    for(int i = 0 ; i < repeat ; i++){
         tt();
     }
+    cout << repeat << " times done."<< endl;
 	return _getch();
 }
 

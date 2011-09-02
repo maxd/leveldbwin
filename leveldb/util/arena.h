@@ -8,7 +8,7 @@
 #include <cstddef>
 #include <vector>
 #include <assert.h>
-#include <stdint.h>
+#include "../port/win/stdint.h"
 
 namespace leveldb {
 

@@ -8,7 +8,7 @@
 #define STORAGE_LEVELDB_DB_TABLE_CACHE_H_
 
 #include <string>
-#include <stdint.h>
+#include "../port/win/stdint.h"
 #include "../db/dbformat.h"
 #include "../leveldb/cache.h"
 #include "../leveldb/table.h"
