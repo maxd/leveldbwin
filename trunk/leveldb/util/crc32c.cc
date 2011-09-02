@@ -7,7 +7,7 @@
 
 #include "../util/crc32c.h"
 
-#include <stdint.h>
+#include "../port/win/stdint.h"
 #include "../util/coding.h"
 
 namespace leveldb {

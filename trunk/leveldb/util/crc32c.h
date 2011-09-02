@@ -6,7 +6,7 @@
 #define STORAGE_LEVELDB_UTIL_CRC32C_H_
 
 #include <stddef.h>
-#include <stdint.h>
+#include "../port/win/stdint.h"
 
 namespace leveldb {
 namespace crc32c {

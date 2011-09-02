@@ -19,7 +19,7 @@
 #define STORAGE_LEVELDB_INCLUDE_CACHE_H_
 
 #include "../leveldb/win32exports.h"
-#include <stdint.h>
+#include "../port/win/stdint.h"
 #include "../leveldb/slice.h"
 
 namespace leveldb {

@@ -6,7 +6,7 @@
 #define STORAGE_LEVELDB_TABLE_FORMAT_H_
 
 #include <string>
-#include <stdint.h>
+#include "../port/win/stdint.h"
 #include "../leveldb/slice.h"
 #include "../leveldb/status.h"
 #include "../leveldb/table_builder.h"

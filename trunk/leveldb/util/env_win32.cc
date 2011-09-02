@@ -16,11 +16,15 @@
 #pragma comment(lib,"DbgHelp.lib")
 
 
+#ifdef max
+#undef max
+#endif
 
 //Implementations
 namespace leveldb
 {
-    Win32Env* Win32::SingletonHelper<Win32Env>::_p = NULL;
+
+    Win32Env g_Env;
 
 namespace Win32
 {
@@ -98,165 +102,30 @@ std::wstring GetLastErrSzW()
     return Err;
 }
 
-void TaskRunner::_WorkingThreadProc( void* arg )
+WorkItemWrapper::WorkItemWrapper( ScheduleProc proc_,void* content_ ) : proc(proc_),pContent(content_)
 {
-    TaskRunner* pThis = static_cast<TaskRunner*>(arg);
-    std::map<DWORD,ThreadState>& States = pThis->_States;
-    std::list<Task>& QueuedTasks = pThis->_QueuedTasks;
-    port::RWLock& states_lock = pThis->_i_states_lock;
-    port::Mutex& tasks_lock = pThis->_i_tasks_lock;
-    port::Event& OnAllRelease = pThis->_OnAllRelease;
-    port::Event& OnHasNewTask = pThis->_OnHasNewTask;
-    LONG& IsWorking = pThis->_IsWorking;
 
-    const DWORD MyId = ::GetCurrentThreadId();
-
-    states_lock.WriteLock();
-    ThreadState CurrentState = (States[MyId] = Idle);
-    states_lock.WriteUnlock();
-
-    while(true){
-        states_lock.ReadLock(); 
-        //states_lock only lock in write mode when add or remove a value in States.
-        if(States[MyId] == ShutDown){
-            states_lock.ReadUnlock();
-            break;
-        }
-        tasks_lock.Lock();
-        if(!QueuedTasks.empty()){
-            Task task = *(--QueuedTasks.end());
-            QueuedTasks.pop_back();
-
-            tasks_lock.Unlock();
-            States[MyId] = Working;
-            states_lock.ReadUnlock();
-
-            task.function(task.arg);
-        }else{
-            tasks_lock.Unlock();
-            States[MyId] = Idle;
-            states_lock.ReadUnlock();
-
-            OnHasNewTask.Wait(_DefaultWatingTime);
-        }
-    }
-
-    states_lock.WriteLock();
-    States.erase(MyId);
-    if(!IsWorking && States.size() == 0){
-        states_lock.WriteUnlock();
-        OnAllRelease.Signal();
-    } else
-        states_lock.WriteUnlock();
 }
 
-TaskRunner::TaskRunner() : _IsWorking(true)
+DWORD WINAPI WorkItemWrapperProc(LPVOID pContent)
 {
-    _Init();
+    WorkItemWrapper* item = static_cast<WorkItemWrapper*>(pContent);
+    ScheduleProc TempProc = item->proc;
+    void* arg = item->pContent;
+    delete item;
+    TempProc(arg);
+    return 0;
 }
 
-TaskRunner::~TaskRunner()
+size_t GetPageSize()
 {
-    _UnInit();
-    _OnAllRelease.Wait();
+    SYSTEM_INFO si;
+    GetSystemInfo(&si);
+    return std::max(si.dwPageSize,si.dwAllocationGranularity);
 }
 
-void TaskRunner::_Init()
-{
-    _OnAllRelease.UnSignal();
-    _OnHasNewTask.UnSignal();
-    _AddThread(DefaultThreadsCount);
-}
+const size_t g_PageSize = GetPageSize();
 
-void TaskRunner::_UnInit()
-{
-    _IsWorking = false;
-    _DestroyThread(GetThreadCount());
-}
-
-int TaskRunner::_AddThread( int Count )
-{
-    assert(Count > 0);
-    size_t current = GetThreadCount();
-    _i_states_lock.WriteLock();
-    for(int i = 0 ;i < Count ; i++){
-        HANDLE hThread = reinterpret_cast<HANDLE>(_beginthread(_WorkingThreadProc,0,this));
-        _States[GetThreadId(hThread)] = Preparing;
-    }
-    _i_states_lock.WriteUnlock();
-    return current + Count;
-}
-
-int TaskRunner::_DestroyThread( int Count )
-{
-    size_t current = GetThreadCount();
-    if(current >= Count){
-        _i_states_lock.WriteLock();
-        size_t hasShutDown = 0;
-        for(std::map<DWORD,ThreadState>::iterator i = _States.begin(); i != _States.end(); i++){
-            if(i->second == Idle){
-                i->second = ShutDown;
-                hasShutDown++;
-            }
-            if(hasShutDown == Count)
-                break;
-        }
-        if(hasShutDown < Count){
-            for(std::map<DWORD,ThreadState>::iterator i = _States.begin(); i != _States.end(); i++){
-                if(i->second != ShutDown){
-                    i->second = ShutDown;
-                    hasShutDown++;
-                }
-                if(hasShutDown == Count)
-                    break;
-            }
-        }
-        _i_states_lock.WriteUnlock();
-        return current - Count;
-    }else
-        return -1;
-}
-
-size_t TaskRunner::GetThreadCount()
-{
-    size_t Count = 0;
-    _i_states_lock.ReadLock();
-    for(std::map<DWORD,ThreadState>::iterator i = _States.begin(); i != _States.end(); i++){
-        if(i->second != ShutDown)
-            Count++;
-    }
-    _i_states_lock.ReadUnlock();
-    return Count;
-}
-
-bool TaskRunner::SetThreadCount( size_t Count )
-{
-    if(Count < 1)
-        return false;
-    size_t Current = GetThreadCount();
-    if(Current > Count)
-        _DestroyThread(Current - Count);
-    else if(Current < Count)
-        _AddThread(Count - Current);
-    return true;
-}
-
-bool TaskRunner::AddTask( const Task& task )
-{
-    if(_IsWorking){
-        _i_tasks_lock.Lock();
-        _QueuedTasks.push_front(task);
-        _i_tasks_lock.Unlock();
-        _OnHasNewTask.Signal();
-        return true;
-    }else
-        return false;
-}
-
-bool TaskRunner::AddTask( void (*function_)(void*), void* arg_ )
-{
-    return AddTask(Task(function_,arg_));
-}
 
 }
 
@@ -264,7 +133,7 @@ bool TaskRunner::AddTask( void (*function_)(void*), void* arg_ )
 
 Env* Env::Default() 
 {
-    return Win32::SingletonHelper<Win32Env>::GetPointer();
+    return &g_Env;
 }
 
 Win32SequentialFile::Win32SequentialFile( const std::string& fname ) :
@@ -327,7 +196,7 @@ void Win32SequentialFile::CleanUp()
 }
 
 Win32RandomAccessFile::Win32RandomAccessFile( const std::string& fname ) :
-_filename(fname),_hFile(NULL)
+    _filename(fname),_hFile(NULL)
 {
     Init(Win32::MultiByteToWChar(fname.c_str() ) );
 }
@@ -340,13 +209,14 @@ Win32RandomAccessFile::~Win32RandomAccessFile()
 Status Win32RandomAccessFile::Read( uint64_t offset, size_t n, Slice* result,char* scratch ) const
 {
     Status sRet;
-    LARGE_INTEGER filePointer;
-    filePointer.QuadPart = offset;
-    DWORD hasRead;
-    if(!(::SetFilePointerEx(_hFile,filePointer,NULL,FILE_BEGIN) && 
-         ::ReadFile(_hFile,scratch,n,&hasRead,NULL) ) ){
-            sRet = Status::IOError(_filename, "Could not preform read");
-    }else
+    OVERLAPPED ol = {0};
+    ZeroMemory(&ol,sizeof(ol));
+    ol.Offset = (DWORD)offset;
+    ol.OffsetHigh = (DWORD)(offset >> 32);
+    DWORD hasRead = 0;
+    if(!ReadFile(_hFile,scratch,n,&hasRead,&ol))
+        sRet = Status::IOError(_filename,Win32::GetLastErrSz());
+    else
         *result = Slice(scratch,hasRead);
     return sRet;
 }
@@ -377,59 +247,177 @@ void Win32RandomAccessFile::CleanUp()
     }
 }
 
-Win32WritableFile::Win32WritableFile( const std::string& fname, FILE* f ) :
-    _filename(fname), _file(f)
+size_t Win32MapFile::Roundup( size_t x, size_t y )
 {
-
+    return ((x + y - 1) / y) * y;
 }
 
-Win32WritableFile::~Win32WritableFile()
+size_t Win32MapFile::TruncateToPageBoundary( size_t s )
 {
-    if(_file){
-        fclose(_file);
-        _file = NULL;
+    s -= (s & (page_size_ - 1));
+    assert((s % page_size_) == 0);
+    return s;
+}
+
+bool Win32MapFile::UnmapCurrentRegion()
+{
+    bool result = true;
+    if (base_ != NULL) {
+        if (last_sync_ < limit_) {
+            // Defer syncing this data until next Sync() call, if any
+            pending_sync_ = true;
+        }
+        UnmapViewOfFile(base_);
+        CloseHandle(base_handle_);
+        file_offset_ += limit_ - base_;
+        base_ = NULL;
+        base_handle_ = NULL;
+        limit_ = NULL;
+        last_sync_ = NULL;
+        dst_ = NULL;
+        // Increase the amount we map the next time, but capped at 1MB
+        if (map_size_ < (1<<20)) {
+            map_size_ *= 2;
+        }
     }
+    return result;
 }
 
-Status Win32WritableFile::Append( const Slice& data )
+bool Win32MapFile::MapNewRegion()
 {
-    Status sRet;
-    size_t size = fwrite(data.data(), 1, data.size(), _file);
-    if (data.size() != size) {
-        sRet = Status::IOError(_filename, strerror(errno));
+    assert(base_ == NULL);
+    //LONG newSizeHigh = (LONG)((file_offset_ + map_size_) >> 32);
+    //LONG newSizeLow = (LONG)((file_offset_ + map_size_) & 0xFFFFFFFF);
+    DWORD off_hi = (DWORD)(file_offset_ >> 32);
+    DWORD off_lo = (DWORD)(file_offset_ & 0xFFFFFFFF);
+    LARGE_INTEGER newSize;
+    newSize.QuadPart = file_offset_ + map_size_;
+    SetFilePointerEx(hfile_, newSize, NULL, FILE_BEGIN);
+    SetEndOfFile(hfile_);
+
+    base_handle_ = CreateFileMappingA(
+        hfile_,
+        NULL,
+        PAGE_READWRITE,
+        0,
+        0,
+        0);
+    if (base_handle_ != NULL) {
+        base_ = (char*) MapViewOfFile(base_handle_,
+            FILE_MAP_ALL_ACCESS,
+            off_hi,
+            off_lo,
+            map_size_);
+        if (base_ != NULL) {
+            limit_ = base_ + map_size_;
+            dst_ = base_;
+            last_sync_ = base_;
+            return true;
+        }
     }
-    return sRet;
+    return false;
 }
 
-Status Win32WritableFile::Close()
+Win32MapFile::Win32MapFile( const std::string& fname, HANDLE hfile, size_t page_size ) : filename_(fname),
+    hfile_(hfile),
+    page_size_(page_size),
+    map_size_(Roundup(65536, page_size)),
+    base_(NULL),
+    base_handle_(NULL),
+    limit_(NULL),
+    dst_(NULL),
+    last_sync_(NULL),
+    file_offset_(0),
+    pending_sync_(false)
 {
-    Status sRet;
-    if(_file){
-       if( fclose(_file) != 0){
-            sRet = Status::IOError(_filename, strerror(errno));
-       }
-       _file = NULL;
-    }else
-        sRet = Status::IOError(_filename, "this file has been closed.");
-    return sRet;
+    assert((page_size & (page_size - 1)) == 0);
 }
 
-Status Win32WritableFile::Flush()
+Status Win32MapFile::Append( const Slice& data )
 {
-    Status sRet;
-    if(fflush(_file) != 0){
-        sRet = Status::IOError(_filename, strerror(errno));
+    const char* src = data.data();
+    size_t left = data.size();
+    Status s;
+    while (left > 0) {
+        assert(base_ <= dst_);
+        assert(dst_ <= limit_);
+        size_t avail = limit_ - dst_;
+        if (avail == 0) {
+            if (!UnmapCurrentRegion() ||
+                !MapNewRegion()) {
+                    return Status::IOError("WinMmapFile.Append::UnmapCurrentRegion or MapNewRegion: ", Win32::GetLastErrSz());
+            }
+        }
+        size_t n = (left <= avail) ? left : avail;
+        memcpy(dst_, src, n);
+        dst_ += n;
+        src += n;
+        left -= n;
     }
-    return sRet;
+    return s;
 }
 
-Status Win32WritableFile::Sync()
+Status Win32MapFile::Close()
 {
-    Status sRet;
-    if(fflush(_file) != 0 || _commit(fileno(_file)) ) {
-        sRet = Status::IOError(_filename, strerror(errno));
+    Status s;
+    size_t unused = limit_ - dst_;
+    if (!UnmapCurrentRegion()) {
+        s = Status::IOError("WinMmapFile.Close::UnmapCurrentRegion: ",Win32::GetLastErrSz());
+    } else if (unused > 0) {
+        // Trim the extra space at the end of the file
+        LARGE_INTEGER newSize;
+        newSize.QuadPart = file_offset_ - unused;
+        if (!SetFilePointerEx(hfile_, newSize, NULL, FILE_BEGIN)) {
+            s = Status::IOError("WinMmapFile.Close::SetFilePointer: ",Win32::GetLastErrSz());
+        } else 
+            SetEndOfFile(hfile_);
     }
-    return sRet;
+    if (!CloseHandle(hfile_)) {
+        if (s.ok()) {
+            s = Status::IOError("WinMmapFile.Close::CloseHandle: ", Win32::GetLastErrSz());
+        }
+    }
+    hfile_ = INVALID_HANDLE_VALUE;
+    base_ = NULL;
+    base_handle_ = NULL;
+    limit_ = NULL;
+
+    return s;
+}
+
+Status Win32MapFile::Sync()
+{
+    Status s;
+    if (pending_sync_) {
+        // Some unmapped data was not synced
+        pending_sync_ = false;
+        if (!FlushFileBuffers(hfile_)) {
+            s = Status::IOError("WinMmapFile.Sync::FlushFileBuffers: ",Win32::GetLastErrSz());
+        }
+    }
+    if (dst_ > last_sync_) {
+        // Find the beginnings of the pages that contain the first and last
+        // bytes to be synced.
+        size_t p1 = TruncateToPageBoundary(last_sync_ - base_);
+        size_t p2 = TruncateToPageBoundary(dst_ - base_ - 1);
+        last_sync_ = dst_;
+        if (!FlushViewOfFile(base_ + p1, p2 - p1 + page_size_)) {
+            s = Status::IOError("WinMmapFile.Sync::FlushViewOfFile: ",Win32::GetLastErrSz());
+        }
+    }
+    return s;
+}
+
+Status Win32MapFile::Flush()
+{
+    return Status::OK();
+}
+
+Win32MapFile::~Win32MapFile()
+{
+    if (hfile_ != INVALID_HANDLE_VALUE) { 
+        Win32MapFile::Close();
+    }
 }
 
 Win32FileLock::Win32FileLock( const std::string& fname ) : _hFile(NULL)
@@ -590,7 +578,9 @@ Status Win32Env::UnlockFile( FileLock* lock )
 
 void Win32Env::Schedule( void (*function)(void* arg), void* arg )
 {
-    _runner.AddTask(function,arg);
+    QueueUserWorkItem(Win32::WorkItemWrapperProc,
+                      new Win32::WorkItemWrapper(function,arg),
+                      WT_EXECUTEDEFAULT);
 }
 
 void Win32Env::StartThread( void (*function)(void* arg), void* arg )
@@ -609,9 +599,12 @@ Status Win32Env::GetTestDirectory( std::string* path )
     return sRet;
 }
 
-std::uint64_t Win32Env::NowMicros()
+uint64_t Win32Env::NowMicros()
 {
-    return (std::uint64_t)(GetTickCount64()*1000);
+#ifndef USE_VISTA_API
+#define GetTickCount64 GetTickCount
+#endif
+    return (uint64_t)(GetTickCount64()*1000);
 }
 
 Status Win32Env::CreateDir( const std::string& dirname )
@@ -671,14 +664,22 @@ Status Win32Env::NewRandomAccessFile( const std::string& fname, RandomAccessFile
 Status Win32Env::NewWritableFile( const std::string& fname, WritableFile** result )
 {
     Status sRet;
-    std::string path = fname;
+    std::wstring path = Win32::MultiByteToWChar(fname.c_str());
     Win32::ModifyPath(path);
-    FILE* f = fopen(path.c_str(), "wb");
-    if (f == NULL) {
+    DWORD Flag = FileExists(fname) ? OPEN_EXISTING : CREATE_ALWAYS;
+    HANDLE hFile = CreateFileW(path.c_str(),
+                               GENERIC_READ | GENERIC_WRITE,
+                               FILE_SHARE_READ|FILE_SHARE_DELETE|FILE_SHARE_WRITE,
+                               NULL,
+                               Flag,
+                               FILE_ATTRIBUTE_NORMAL,
+                               NULL);
+    if(hFile == INVALID_HANDLE_VALUE || hFile == NULL){
         *result = NULL;
-        sRet = Status::IOError(path, strerror(errno));
-    } else
-        *result = new Win32WritableFile(path, f);
+        sRet = Status::IOError(fname,Win32::GetLastErrSz());
+    }else
+        *result = new Win32MapFile(fname,hFile,Win32::g_PageSize);
+
     return sRet;
 }
 
@@ -757,5 +758,8 @@ Win32Env::~Win32Env()
 {
 
 }
+
+
+
 
 }

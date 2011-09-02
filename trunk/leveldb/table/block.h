@@ -6,7 +6,7 @@
 #define STORAGE_LEVELDB_TABLE_BLOCK_H_
 
 #include <stddef.h>
-#include <stdint.h>
+#include "../port/win/stdint.h"
 #include "../leveldb/iterator.h"
 
 namespace leveldb {

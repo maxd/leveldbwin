@@ -19,7 +19,7 @@
 #ifndef PORT_ATOMIC_POINTER_H_
 #define PORT_ATOMIC_POINTER_H_
 
-#include <stdint.h>
+#include "../port/win/stdint.h"
 #ifdef LEVELDB_CSTDATOMIC_PRESENT
 #include <cstdatomic>
 #endif
